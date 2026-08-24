@@ -10,18 +10,26 @@ CITY = "Mumbai"
 
 # Each bedroom count is scraped separately so bands stay small enough
 # that no single search URL comes close to the actor's 200 result cap.
-BEDROOM_GROUPS = ["1", "2", "3", ">5"]
+
+BEDROOM_GROUPS = ["2", "3", "1", "4", ">5"]
 
 # Budget bands in Lacs/Crores, using the same string format MagicBricks expects.
 # If any single band still returns close to 200 for a given bedroom count,
 # split that band further (the script prints a warning when this happens).
+#
+
 BUDGET_BANDS = [
+    (None, "20-Lacs"),
     ("20-Lacs", "50-Lacs"),
     ("50-Lacs", "80-Lacs"),
     ("80-Lacs", "1.2-Crores"),
     ("1.2-Crores", "1.8-Crores"),
     ("1.8-Crores", "2.5-Crores"),
     ("2.5-Crores", "3.5-Crores"),
+    ("3.5-Crores", "5-Crores"),
+    ("5-Crores", "7.5-Crores"),
+    ("7.5-Crores", "10-Crores"),
+    ("10-Crores", None),
 ]
 
 RESULTS_LIMIT = 200  # actor's max per search URL
@@ -31,6 +39,13 @@ WARN_THRESHOLD = 190  # flag a band that likely got truncated
 SLEEP_BETWEEN_CALLS = 2
 
 # Budget guard. The actor bills per result scraped (per event).
+# With 5 bedroom groups x 11 budget bands = 55 possible calls at up to 200
+# results each, full coverage could mean up to 11,000 events, well beyond
+# what $4.00 covers. The budget was already the binding constraint before
+# this change, it's just more pronounced now that bands cover a wider price
+# range. BEDROOM_GROUPS and BUDGET_BANDS orderings both matter more as a
+# result, whatever's listed first is what actually gets scraped if the
+# budget runs out. Raise BUDGET_USD if you want fuller coverage in one run.
 PRICE_PER_EVENT_USD = 0.002
 BUDGET_USD = 4.00
 SAFETY_BUFFER_USD = 0.20  # stop a bit short of the hard limit
@@ -42,13 +57,19 @@ MAX_EVENTS = int(SPENDABLE_USD / PRICE_PER_EVENT_USD)  # 1900 events at these de
 # midway, what gets skipped is the least important segment, not the most.
 
 
-def build_search_url(city: str, bedrooms: str, budget_min: str, budget_max: str) -> str:
-    return (
+def build_search_url(city: str, bedrooms: str, budget_min: str | None, budget_max: str | None) -> str:
+    url = (
         "https://www.magicbricks.com/property-for-sale/residential-real-estate?"
         f"bedroom={bedrooms}&proptype=Multistorey-Apartment,Builder-Floor-Apartment,"
-        f"Penthouse,Studio-Apartment,Residential-House,Villa&cityName={city}&"
-        f"BudgetMin={budget_min}&BudgetMax={budget_max}"
+        f"Penthouse,Studio-Apartment,Residential-House,Villa&cityName={city}"
     )
+    # None means "no bound on this side", omit the param instead of sending
+    # a literal "None" string. Lets the first and last bands stay open-ended.
+    if budget_min is not None:
+        url += f"&BudgetMin={budget_min}"
+    if budget_max is not None:
+        url += f"&BudgetMax={budget_max}"
+    return url
 
 
 def get_apify_cmd() -> str:
@@ -136,8 +157,11 @@ def run_all_bands(city: str) -> list:
             # Never request more than what's left in the budget, or the actor's own cap.
             call_limit = min(RESULTS_LIMIT, remaining_events)
 
-            tag = f"{bedrooms.replace(',', '_').replace('>', 'gt')}_{budget_min}_{budget_max}"
-            print(f"[{call_num}/{total_calls}] Scraping {city} | {bedrooms} BHK | {budget_min} to {budget_max} "
+            min_label = budget_min if budget_min is not None else "open"
+            max_label = budget_max if budget_max is not None else "open"
+            tag = f"{bedrooms.replace(',', '_').replace('>', 'gt')}_{min_label}_{max_label}"
+            range_label = f"{min_label} to {max_label}"
+            print(f"[{call_num}/{total_calls}] Scraping {city} | {bedrooms} BHK | {range_label} "
                   f"(limit {call_limit}, ${events_used * PRICE_PER_EVENT_USD:.2f} spent so far)")
 
             search_url = build_search_url(city, bedrooms, budget_min, budget_max)
@@ -170,6 +194,31 @@ def dedupe_items(items: list) -> list:
         seen.add(key)
         deduped.append(item)
     return deduped
+
+
+def report_likely_relistings(items: list) -> None:
+    """Flag listings that share title + price + floor but slipped past the
+    id/url dedupe, this is the pattern the v2 analysis notebook found
+    manually after the fact. Report only, doesn't drop anything, that
+    call belongs at analysis time where it can be checked by hand."""
+    seen = {}
+    flagged = 0
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        key = (item.get("propertyTitle"), item.get("price"), item.get("floorNo"))
+        if key == (None, None, None):
+            continue
+        if key in seen:
+            flagged += 1
+        else:
+            seen[key] = True
+
+    if flagged:
+        print(f"⚠️  {flagged} listings share title + price + floor with another "
+              f"listing under a different id, likely re-listings. Not dropped "
+              f"here, check manually during cleaning (same approach used in "
+              f"the v2 notebook).")
 
 
 def save_json(items: list, city: str) -> Path:
@@ -230,7 +279,10 @@ def main() -> None:
     print(f"\nTotal raw listings across all bands: {len(raw_items)}")
 
     items = dedupe_items(raw_items)
-    print(f"Total unique listings after dedupe: {len(items)}\n")
+    print(f"Total unique listings after dedupe: {len(items)}")
+
+    report_likely_relistings(items)
+    print()
 
     json_path = save_json(items, CITY)
     convert_json_to_csv(json_path)

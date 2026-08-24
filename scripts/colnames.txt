@@ -37,6 +37,7 @@ bcp
 bd
 bedroomD
 bookingAmtExact
+brfdesc
 brokerConnect
 buyerCountbyPsm
 cScore
@@ -49,6 +50,7 @@ catAdd1
 cg
 cntvl
 comFlag
+comPantry
 companyname
 contName
 covAreaUnit
@@ -75,6 +77,7 @@ defaultAdddressGoogle
 devId
 devName
 deviceType
+dimD
 dsla
 dtldesc
 dues
@@ -92,6 +95,7 @@ flooringTyD
 floors
 furnished
 furnishedD
+gateComm
 grpBky1
 grpBky2
 grpBky3
@@ -99,6 +103,7 @@ grpBky4
 grpBky5
 grpBky6
 grpBky7
+iTarget
 iba
 id
 image
@@ -164,6 +169,8 @@ pCct
 pEmailuuid
 pSc
 parkingD
+pbrk
+pbrkp
 pcTcCt
 pckCon
 pd
@@ -177,6 +184,7 @@ plgdtldesc
 pmtLat
 pmtLong
 pmtSource
+pmtTCabin
 pmtUsp
 pmtUsp1
 pmtUsp2
